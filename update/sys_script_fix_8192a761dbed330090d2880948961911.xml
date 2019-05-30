@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_script_fix">
+    <sys_script_fix action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <before>false</before>
+        <description/>
+        <flush_cache>false</flush_cache>
+        <name>Weather PA Scores - Populate</name>
+        <record_for_rollback>false</record_for_rollback>
+        <run_once>true</run_once>
+        <script><![CDATA[
+var SOURCE_TABLE = "u_city_weather";
+
+var log = new GSLog("H.Weather", "Weather"); 
+
+var MONTH_NAME = [
+	"January",
+	"February",
+	"March",
+	"April",
+	"May",
+	"June",
+	"July",
+	"August",
+	"September",
+	"October",
+	"November",
+	"December"
+];
+
+var BREAKDOWN = {
+	LOCATION: 27
+};
+
+var INDICATOR = {
+	MAX_TEMP: 113,
+	AVG_TEMP: 114,
+	MIN_TEMP: 115,
+	MIN_HUMID: 116,
+	AVG_HUMID: 117,
+	MAX_HUMID: 118
+};
+
+var INDICATOR_TO_FIELD = {
+	MIN_HUMID: "u_humidity_min",
+	AVG_HUMID: "u_humidity_avg",
+	MAX_HUMID: "u_humidity_max"
+};
+
+for (var month_no in MONTH_NAME) {
+	var MM = MONTH_NAME[month_no];
+	var filterByMonth = "u_dateDATEPART" + MM +
+	"@javascript:gs.datePart('month','" + MM.slice(0,3).toLowerCase() + "','EE')";
+	var aggreg = new GlideAggregate(SOURCE_TABLE);
+	aggreg.addQuery(filterByMonth);
+	aggreg.addAggregate('AVG','u_temp_max');
+	aggreg.addAggregate('AVG','u_temp_avg');
+	aggreg.addAggregate('AVG','u_temp_min');
+	
+	// Automatic Indicator aggregates
+	for (var itf in INDICATOR_TO_FIELD) {
+		aggreg.addAggregate('AVG', INDICATOR_TO_FIELD[itf]);
+	}
+	
+	aggreg.groupBy('u_city');
+	aggreg.query();
+
+	// For each city-month pair 
+	while(aggreg.next()){
+		var city = aggreg.u_city;
+		
+		// Collect temperature aggregates [Farenheit to Celsius]
+		var avg_max_celsius = f_to_celsius(aggreg.getAggregate('AVG','u_temp_max'));
+		var avg_avg_celsius = f_to_celsius(aggreg.getAggregate('AVG','u_temp_avg'));
+		var avg_min_celsius = f_to_celsius(aggreg.getAggregate('AVG','u_temp_min'));
+		
+		// TODO: The Max could be the 80% Highest instead
+		
+		log.debug(MM + "@" + city + ". Avg Temperature = " + avg_avg_celsius);
+		log.debug(MM + "@" + city + ". Avg High = " + avg_max_celsius);
+		log.debug(MM + "@" + city + ". Avg Low = " + avg_min_celsius);
+				
+		addScore(INDICATOR.AVG_TEMP, BREAKDOWN.LOCATION, city, month_no, avg_avg_celsius);
+		addScore(INDICATOR.MAX_TEMP, BREAKDOWN.LOCATION, city, month_no, avg_max_celsius);
+		addScore(INDICATOR.MIN_TEMP, BREAKDOWN.LOCATION, city, month_no, avg_min_celsius);
+		
+		
+		// Automatic Indicator aggregates
+		for (var itf in INDICATOR_TO_FIELD) {
+			var itf_avg = aggreg.getAggregate('AVG', INDICATOR_TO_FIELD[itf]);
+			// Watch out!! We're sharing keys manually here: risk of inconsistency and mismatch
+
+			log.debug(MM + "@" + city + ". " + itf + " = " + itf_avg);
+
+			addScore(INDICATOR[itf], BREAKDOWN.LOCATION, city, month_no, itf_avg);
+		}
+	}
+	
+	for (var dicat in INDICATOR) {
+		addScore(INDICATOR[dicat], "", "", month_no, 0);
+	}
+}
+
+function addScore(indicator, breakdown, city, month_number, value) {
+	if (month_number < 10) month_number = "0" + month_number;
+	var timestamp = "2018" + month_number + "01";
+	
+	// First cleanup
+	var score = new GlideRecord("pa_scores_l1");
+	score.addQuery("indicator", indicator);
+	score.addQuery("breakdown", breakdown);
+	score.addQuery("element", city);
+	score.addQuery("start_at", timestamp);
+	score.deleteMultiple();
+	
+	// Then create
+	score = new GlideRecord("pa_scores_l1");
+	score.initialize();
+	score.indicator = indicator;
+	score.breakdown = breakdown;
+	score.value = value;
+	score.setValue("start_at", timestamp);
+
+	score.setValue("element", city.toString());
+	
+	var sys_id = score.insert();
+	
+	log.logDebug("Inserted score @" + sys_id);
+}
+
+function f_to_celsius  (t) {
+	var t_celsius = ((t - 32)*5)/9;
+	return t_celsius;
+}
+
+
+]]></script>
+        <sys_class_name>sys_script_fix</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2019-05-21 12:44:36</sys_created_on>
+        <sys_id>8192a761dbed330090d2880948961911</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Weather PA Scores - Populate</sys_name>
+        <sys_package display_value="H Weather" source="x_186560_h_weather">7ee16761dbed330090d28809489619d0</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="H Weather">7ee16761dbed330090d28809489619d0</sys_scope>
+        <sys_update_name>sys_script_fix_8192a761dbed330090d2880948961911</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2019-05-21 12:44:36</sys_updated_on>
+        <unloadable>false</unloadable>
+    </sys_script_fix>
+</record_update>
